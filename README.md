@@ -1,3 +1,7 @@
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![make.fun rank](https://make.fun/badge/gta6-01/bismilahdestia/gta6-01-entry-v2/rank.svg)](https://make.fun/bounty/gta6-01)
+[![make.fun reward](https://make.fun/badge/gta6-01/bismilahdestia/gta6-01-entry-v2/reward.svg)](https://make.fun/bounty/gta6-01)
+
 # Porto Alba
 
 An original open-world crime game set in Porto Alba, a harbour city of
