@@ -1,147 +1,117 @@
-// Porto Alba — screenshot staging (v2). The render script opens
-// index.html?shot=<name>&seed=19. Each shot places Rook, cars, police,
-// pedestrians and the mission state so the frame shows several systems at
-// once, then the boot loop raises window.__shotReady once a few frames
-// have rendered. Shot mode also skips the start screen: the game is
-// already running.
+// The screenshot scenes behind ?shot=chase|onfoot|drive|mission (with &seed=N).
+// Each one plays the real rules forward from a fresh world for a fixed number
+// of steps, steered by a simple autopilot, so the frame is what a short game
+// really looks like and the same seed always gives the same frame.
 //
-// v2 staging rules (learned from v1's judge view): the judge sees the
-// screenshots shrunk, so every shot must be BUSY — traffic and
-// pedestrians in frame, the mission beacon where it can be seen, police
-// close enough to read. Empty roads and empty beaches lose. Traffic and
-// pedestrians placed here are staged (low cruise, no turning for 60s) so
-// they are still in frame when the shutter fires ~1s after ready.
+// The mission shot and the HUD share one objective: the shot sets the story to
+// the delivery job, and the beacon the HUD draws is the Marina itself — the
+// text and the beacon can never disagree.
 
-export function stageShot(G, shot) {
-  const p = G.player;
+import { STEP } from './config.js';
+import { SCREEN_PLAY } from './hud.js';
+import { clamp, dist2d, wrapAngle } from './util.js';
 
-  function putPlayerOnFoot(x, z, heading) {
-    if (p.car) { p.car.driven = false; p.car = null; }
-    p.onFoot = true;
-    p.x = x; p.z = z; p.heading = heading;
-    p.mesh.group.visible = true;
-    p.mesh.group.position.set(x, 0, z);
-    p.mesh.group.rotation.y = heading;
+const CHASE_SECONDS = 6;
+const ONFOOT_SECONDS = 5;
+const DRIVE_SECONDS = 6;
+const MISSION_SECONDS = 6;
+
+/** Steer a car toward a point: returns { steer, throttle, brake }. */
+function driveToward(car, tx, tz, throttle = 1) {
+  const want = Math.atan2(tx - car.x, tz - car.z);
+  const turn = wrapAngle(want - car.heading);
+  return {
+    steer: clamp(turn * 1.6, -1, 1),
+    throttle: Math.abs(turn) > 1.4 ? 0.3 : throttle,
+    brake: 0,
+  };
+}
+
+/** Follow a list of waypoints in order, one input at a time. */
+function followWaypoints(car, points, state) {
+  const goal = points[state.point];
+  if (!goal) return { steer: 0, throttle: 0, brake: 1 };
+  if (dist2d(car.x, car.z, goal.x, goal.z) < 9) {
+    state.point += 1;
+    return followWaypoints(car, points, state);
   }
+  return driveToward(car, goal.x, goal.z);
+}
 
-  function putPlayerInCar(car, heading) {
-    p.car = car;
-    p.onFoot = false;
-    car.driven = true;
-    car.parked = false;
-    car.heading = heading;
-    car.speed = 12;
-    p.mesh.group.visible = false;
-  }
+export function stageShot(name, world) {
+  world.reset();
 
-  // A traffic car that holds its lane for the shot: slow cruise, and no
-  // intersection turns for 60s so it cannot drive out of frame.
-  function placeTraffic(x, z, heading, speed) {
-    const car = G.cars.addCar('traffic', x, z, heading);
-    car.cruise = speed;
-    car.speed = speed;
-    car.turnCooldown = 60;
-    return car;
-  }
-
-  function placePed(x, z) {
-    return G.people.addPed(x, z);
-  }
-
-  // Pedestrians along both pavements of a street. For a vertical street
-  // (constant x) the walkers sit at street +/- 8.5; for a horizontal one
-  // (constant z) they sit at street +/- 8.5 in z.
-  function sidewalkPeds(street, along0, along1, vertical) {
-    const spots = [along0, (along0 + along1) / 2, along1];
-    for (const a of spots) {
-      if (vertical) {
-        placePed(street + 8.5, a);
-        placePed(street - 8.5, a + 6);
-      } else {
-        placePed(a, street + 8.5);
-        placePed(a + 6, street - 8.5);
-      }
+  if (name === 'onfoot') {
+    // On foot on the avenue sidewalk, walking north with the road, the
+    // traffic and the city ahead. The current job is still "steal the
+    // teal car".
+    world.player.onFoot = true;
+    world.player.x = 8;
+    world.player.z = -100;
+    world.player.heading = 0;
+    world.player.speed = 0;
+    for (let i = 0; i < ONFOOT_SECONDS / STEP; i += 1) {
+      world.step(STEP, { steer: 0, throttle: 1, brake: 0, steal: false, shove: false });
     }
+    return { screen: SCREEN_PLAY };
   }
 
-  if (shot === 'chase') {
-    // COVER. Wanted 3 stars, police interceptors closing in head-on down
-    // street x=-42, mission "Heat" in progress, traffic and pedestrians
-    // on the same street. The cops sit 20-35 units ahead (v1 had them
-    // 40-50 out, too small to read) and a traffic car threads between
-    // them so the street reads as alive, not empty.
-    const car = G.cars.nearestStealable(-42, -60, 500) || G.cars.cars[0];
-    car.x = -42; car.z = -60;
-    putPlayerInCar(car, 0);
-    car.speed = 26;
-    G.wanted.addHeat(3, null);
-    const cop1 = G.cars.addCar('police', -42, -38, Math.PI);
-    cop1.cruise = 19; cop1.speed = 12;
-    G.wanted.police.push(cop1);
-    const cop2 = G.cars.addCar('police', -37.5, -28, Math.PI);
-    cop2.cruise = 19; cop2.speed = 12;
-    G.wanted.police.push(cop2);
-    const cop3 = G.cars.addCar('police', -46.5, -20, Math.PI);
-    cop3.cruise = 19; cop3.speed = 12;
-    G.wanted.police.push(cop3);
-    placeTraffic(-39.5, -8, 0, 6);
-    // Pedestrians well clear of the cops in depth: a walker standing a
-    // unit behind a police car reads as standing ON its roof.
-    placePed(-33.5, -52);
-    placePed(-33.5, -2);
-    placePed(-50.5, -52);
-    placePed(-50.5, -2);
-    G.story.startMission(2);
-    G.cameraMode = 'follow';
-  } else if (shot === 'onfoot') {
-    // On foot downtown on street x=0, facing south down the street:
-    // traffic ahead in both lanes, pedestrians on both pavements, a
-    // parked car to steal at the kerb, mission 1 briefing on screen.
-    // (v1's cover was an empty marina beach — no city, no life.)
-    putPlayerOnFoot(0, 30, 0);
-    placeTraffic(2.5, 46, 0, 6);
-    placeTraffic(2.5, 64, 0, 6);
-    placeTraffic(-2.5, 78, Math.PI, 6);
-    const parked = G.cars.addCar('parked', 4.5, 38, Math.PI / 2);
-    parked.speed = 0;
-    sidewalkPeds(0, 36, 72, true);
-    G.story.startMission(0);
-    G.cameraMode = 'follow';
-  } else if (shot === 'drive') {
-    // Driving east down street z=0 with traffic in both lanes around the
-    // player, pedestrians on the pavements, a parked car at the kerb.
-    // (v1's drive shot had an empty road: 12 traffic cars spread over
-    // the whole map never land in frame on their own.)
-    const car = G.cars.nearestStealable(20, 0, 500) || G.cars.cars[0];
-    car.x = 20; car.z = 0;
-    putPlayerInCar(car, Math.PI / 2);
-    car.speed = 16;
-    placeTraffic(45, 2.5, Math.PI / 2, 6);
-    placeTraffic(68, -2.5, Math.PI / 2, 6);
-    placeTraffic(95, 2.5, Math.PI / 2, 6);
-    placeTraffic(122, -2.5, -Math.PI / 2, 6);
-    const parked = G.cars.addCar('parked', 60, -4.5, Math.PI / 2);
-    parked.speed = 0;
-    sidewalkPeds(0, 34, 110, false);
-    G.cameraMode = 'follow';
-  } else if (shot === 'mission') {
-    // Mission 2 in progress: package in hand, driving south up street
-    // x=126 to the warehouse. The player sits 31 units out (v2 first
-    // pass had 48: the beacon diamond hid behind the 9-unit warehouse
-    // roof) so the yellow beacon column and diamond clear the roofline
-    // in frame. Traffic ahead in the same direction, pedestrians on the
-    // pavements (kept short of the warehouse block, z<119).
-    const car = G.cars.nearestStealable(126, 95, 500) || G.cars.cars[0];
-    car.x = 126; car.z = 95;
-    putPlayerInCar(car, 0);
-    car.speed = 10;
-    placeTraffic(123.5, 108, 0, 6);
-    placeTraffic(128.5, 116, 0, 6);
-    sidewalkPeds(126, 100, 112, true);
-    G.story.stageForShot('mission');
-    G.cameraMode = 'follow';
+  if (name === 'drive') {
+    // Driving fast down the avenue at x = 0, overtaking slower traffic.
+    world.story.index = 1;
+    world.putPlayerInCar(world.ownCar, 0, -200, 0, 22);
+    for (let i = 0; i < DRIVE_SECONDS / STEP; i += 1) {
+      let desiredX = 0;
+      for (const car of world.traffic) {
+        const dz = car.z - world.playerCar.z;
+        if (dz > 0 && dz < 18 && Math.abs(car.x - world.playerCar.x) < 3.5) desiredX = 5.5;
+      }
+      const steer = clamp((desiredX - world.playerCar.x) * 0.25 + wrapAngle(0 - world.playerCar.heading) * 1.2, -1, 1);
+      world.step(STEP, { steer, throttle: 1, brake: 0, steal: false, shove: false });
+    }
+    return { screen: SCREEN_PLAY };
   }
-  // Face the camera at the action: the boot loop keeps the follow camera
-  // behind the player, so the shot frames the player and the street ahead.
-  G.shotMode = shot;
+
+  if (name === 'mission') {
+    // The delivery job: drive from the crossroads at (60, 60) toward the
+    // Marina — the frame catches the car mid-route, job still open, so the
+    // HUD objective and the beacon still name the Marina.
+    // The route stays on the roads — east along z = 60, then north along
+    // x = 210 — and the HUD objective is the same Marina the beacon marks.
+    world.story.index = 1;
+    world.wanted.heat = 10;
+    world.wanted.stars = 1;
+    world.putPlayerInCar(world.ownCar, 60, 60, Math.PI / 2, 18);
+    const route = { point: 0 };
+    const points = [{ x: 210, z: 60 }, { x: 210, z: 210 }];
+    for (let i = 0; i < MISSION_SECONDS / STEP; i += 1) {
+      const input = followWaypoints(world.playerCar, points, route);
+      world.step(STEP, { ...input, steal: false, shove: false });
+    }
+    return { screen: SCREEN_PLAY };
+  }
+
+  // Default: the chase cover. The teal target drives ahead of the player on
+  // the same avenue; the player closes to about 25 m and holds there, so the
+  // frame reads as a pursuit. The objective line names the chase, and the
+  // beacon follows the target car itself.
+  world.putPlayerInCar(world.ownCar, 0, -60, 0, 20);
+  world.targetCar.x = 0;
+  world.targetCar.z = -35;
+  world.targetCar.heading = 0;
+  world.targetCar.speed = 22;
+  world.targetCar.cruise = 22;
+  world.objectiveOverride = {
+    text: 'Chase down the teal car',
+    getTarget: () => ({ x: world.targetCar.x, z: world.targetCar.z }),
+  };
+  for (let i = 0; i < CHASE_SECONDS / STEP; i += 1) {
+    // The target cruises its road; the player holds a ~25 m gap behind it.
+    world.targetCar.z += world.targetCar.speed * STEP;
+    const gap = world.targetCar.z - world.playerCar.z;
+    const throttle = gap > 28 ? 1 : gap < 20 ? 0.25 : 0.55;
+    const input = driveToward(world.playerCar, world.targetCar.x, world.targetCar.z, throttle);
+    world.step(STEP, { ...input, steal: false, shove: false });
+  }
+  return { screen: SCREEN_PLAY };
 }
