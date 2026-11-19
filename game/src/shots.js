@@ -1,117 +1,198 @@
-// The screenshot scenes behind ?shot=chase|onfoot|drive|mission (with &seed=N).
-// Each one plays the real rules forward from a fresh world for a fixed number
-// of steps, steered by a simple autopilot, so the frame is what a short game
-// really looks like and the same seed always gives the same frame.
-//
-// The mission shot and the HUD share one objective: the shot sets the story to
-// the delivery job, and the beacon the HUD draws is the Marina itself — the
-// text and the beacon can never disagree.
+// Porto Alba — shots.js
+// Screenshot staging for the four shots (seed 91). Each shot arranges the
+// world into a readable tableau — chase, on foot, driving, mission — then
+// raises window.__shotReady. The world is frozen in shot mode, so the frame
+// the camera takes is exactly the frame staged here.
 
-import { STEP } from './config.js';
-import { SCREEN_PLAY } from './hud.js';
-import { clamp, dist2d, wrapAngle } from './util.js';
+import { CONFIG } from './config.js';
+import { setWanted } from './wanted.js';
+import { setMission } from './story.js';
+import { placePed } from './people.js';
+import { updateHud, showBanner } from './hud.js';
 
-const CHASE_SECONDS = 6;
-const ONFOOT_SECONDS = 5;
-const DRIVE_SECONDS = 6;
-const MISSION_SECONDS = 6;
-
-/** Steer a car toward a point: returns { steer, throttle, brake }. */
-function driveToward(car, tx, tz, throttle = 1) {
-  const want = Math.atan2(tx - car.x, tz - car.z);
-  const turn = wrapAngle(want - car.heading);
-  return {
-    steer: clamp(turn * 1.6, -1, 1),
-    throttle: Math.abs(turn) > 1.4 ? 0.3 : throttle,
-    brake: 0,
-  };
+/** Reposition existing traffic cars to exact staging spots (frozen tableau). */
+export function placeTraffic(G, spots) {
+  spots.forEach((s, i) => {
+    const car = G.cars.traffic[i];
+    if (!car) return;
+    car.mesh.position.set(s.x, 0, s.z);
+    car.mesh.rotation.y = s.heading ?? 0;
+    car.heading = s.heading ?? 0;
+    car.cruise = 0;
+    car.speed = 0;
+    car.active = true;
+    car.mesh.visible = true;
+  });
 }
 
-/** Follow a list of waypoints in order, one input at a time. */
-function followWaypoints(car, points, state) {
-  const goal = points[state.point];
-  if (!goal) return { steer: 0, throttle: 0, brake: 1 };
-  if (dist2d(car.x, car.z, goal.x, goal.z) < 9) {
-    state.point += 1;
-    return followWaypoints(car, points, state);
-  }
-  return driveToward(car, goal.x, goal.z);
+/** Drop pedestrians on both pavements at exact staging spots. */
+export function sidewalkPeds(G, spots) {
+  for (const s of spots) placePed(G, s.x, s.z, s.heading ?? 0);
 }
 
-export function stageShot(name, world) {
-  world.reset();
-
-  if (name === 'onfoot') {
-    // On foot on the avenue sidewalk, walking north with the road, the
-    // traffic and the city ahead. The current job is still "steal the
-    // teal car".
-    world.player.onFoot = true;
-    world.player.x = 8;
-    world.player.z = -100;
-    world.player.heading = 0;
-    world.player.speed = 0;
-    for (let i = 0; i < ONFOOT_SECONDS / STEP; i += 1) {
-      world.step(STEP, { steer: 0, throttle: 1, brake: 0, steal: false, shove: false });
-    }
-    return { screen: SCREEN_PLAY };
-  }
-
-  if (name === 'drive') {
-    // Driving fast down the avenue at x = 0, overtaking slower traffic.
-    world.story.index = 1;
-    world.putPlayerInCar(world.ownCar, 0, -200, 0, 22);
-    for (let i = 0; i < DRIVE_SECONDS / STEP; i += 1) {
-      let desiredX = 0;
-      for (const car of world.traffic) {
-        const dz = car.z - world.playerCar.z;
-        if (dz > 0 && dz < 18 && Math.abs(car.x - world.playerCar.x) < 3.5) desiredX = 5.5;
-      }
-      const steer = clamp((desiredX - world.playerCar.x) * 0.25 + wrapAngle(0 - world.playerCar.heading) * 1.2, -1, 1);
-      world.step(STEP, { steer, throttle: 1, brake: 0, steal: false, shove: false });
-    }
-    return { screen: SCREEN_PLAY };
-  }
-
-  if (name === 'mission') {
-    // The delivery job: drive from the crossroads at (60, 60) toward the
-    // Marina — the frame catches the car mid-route, job still open, so the
-    // HUD objective and the beacon still name the Marina.
-    // The route stays on the roads — east along z = 60, then north along
-    // x = 210 — and the HUD objective is the same Marina the beacon marks.
-    world.story.index = 1;
-    world.wanted.heat = 10;
-    world.wanted.stars = 1;
-    world.putPlayerInCar(world.ownCar, 60, 60, Math.PI / 2, 18);
-    const route = { point: 0 };
-    const points = [{ x: 210, z: 60 }, { x: 210, z: 210 }];
-    for (let i = 0; i < MISSION_SECONDS / STEP; i += 1) {
-      const input = followWaypoints(world.playerCar, points, route);
-      world.step(STEP, { ...input, steal: false, shove: false });
-    }
-    return { screen: SCREEN_PLAY };
-  }
-
-  // Default: the chase cover. The teal target drives ahead of the player on
-  // the same avenue; the player closes to about 25 m and holds there, so the
-  // frame reads as a pursuit. The objective line names the chase, and the
-  // beacon follows the target car itself.
-  world.putPlayerInCar(world.ownCar, 0, -60, 0, 20);
-  world.targetCar.x = 0;
-  world.targetCar.z = -35;
-  world.targetCar.heading = 0;
-  world.targetCar.speed = 22;
-  world.targetCar.cruise = 22;
-  world.objectiveOverride = {
-    text: 'Chase down the teal car',
-    getTarget: () => ({ x: world.targetCar.x, z: world.targetCar.z }),
-  };
-  for (let i = 0; i < CHASE_SECONDS / STEP; i += 1) {
-    // The target cruises its road; the player holds a ~25 m gap behind it.
-    world.targetCar.z += world.targetCar.speed * STEP;
-    const gap = world.targetCar.z - world.playerCar.z;
-    const throttle = gap > 28 ? 1 : gap < 20 ? 0.25 : 0.55;
-    const input = driveToward(world.playerCar, world.targetCar.x, world.targetCar.z, throttle);
-    world.step(STEP, { ...input, steal: false, shove: false });
-  }
-  return { screen: SCREEN_PLAY };
+/** Put Rook in his teal car at a spot, facing a heading, at a HUD speed. */
+function putPlayerInCar(G, x, z, heading, speed) {
+  const car = G.cars.playerCar;
+  car.mesh.position.set(x, 0, z);
+  car.mesh.rotation.y = heading;
+  car.heading = heading;
+  car.speed = speed;
+  G.player.onFoot = false;
+  G.player.car = car;
+  G.player.pos.set(x, 0, z);
+  G.player.heading = heading;
+  G.player.speed = speed;
+  G.player.mesh.visible = false;
 }
+
+/** Put Rook on foot at a spot, facing a heading. */
+function putPlayerOnFoot(G, x, z, heading) {
+  G.player.onFoot = true;
+  G.player.car = null;
+  G.player.pos.set(x, 0, z);
+  G.player.heading = heading;
+  G.player.speed = 0;
+  G.player.mesh.visible = true;
+  G.player.mesh.position.set(x, 0, z);
+  G.player.mesh.rotation.y = heading;
+}
+
+/** Move a parked car to an exact kerb spot (used for the red steal target). */
+function placeParked(G, index, x, z, heading) {
+  const car = G.cars.parked[index];
+  if (!car) return;
+  car.mesh.position.set(x, 0, z);
+  car.mesh.rotation.y = heading;
+  car.heading = heading;
+}
+
+/** Hide the start screen and mark the game started for a staged shot. */
+function beginShot(G) {
+  G.started = true;
+  G.onStartScreen = false;
+  const start = document.getElementById('start-screen');
+  if (start) start.style.display = 'none';
+}
+
+/** Stage one of the four shots, then raise the ready flag. */
+export function stageShot(G, name) {
+  beginShot(G);
+  if (name === 'chase') stageChase(G);
+  else if (name === 'onfoot') stageOnFoot(G);
+  else if (name === 'drive') stageDrive(G);
+  else if (name === 'mission') stageMission(G);
+  updateHud(G);
+  window.__shotReady = true;
+}
+
+/**
+ * 1-chase (cover): 3 police interceptors 20-35 units ahead of Rook, a traffic
+ * car threading between them, 4 pedestrians 14+ units clear of the cops in
+ * depth, wanted 3 stars, the Heat objective, speed on the HUD, banner on top.
+ */
+function stageChase(G) {
+  putPlayerInCar(G, 0, 60, 0, 24);
+  setWanted(G, 3);
+  // Clear any pooled police, then place exactly three interceptors ahead.
+  for (const car of G.cars.police) {
+    car.active = false;
+    car.mesh.visible = false;
+  }
+  const spots = [
+    { x: -4, z: 30 },
+    { x: 3, z: 38 },
+    { x: 0, z: 25 },
+  ];
+  spots.forEach((s, i) => {
+    const car = G.cars.police[i];
+    if (!car) return;
+    car.active = true;
+    car.mesh.visible = true;
+    car.mesh.position.set(s.x, 0, s.z);
+    car.mesh.rotation.y = Math.PI; // facing back toward Rook (south)
+    car.heading = Math.PI;
+    car.speed = 18;
+  });
+  // One traffic car threading between the interceptors.
+  placeTraffic(G, [{ x: 0.5, z: 32, heading: 0 }]);
+  // Four pedestrians on the pavements, 14+ units clear of the cops in depth.
+  sidewalkPeds(G, [
+    { x: -6.5, z: 10, heading: 0 },
+    { x: 6.5, z: 5, heading: Math.PI },
+    { x: -6.5, z: 0, heading: 0 },
+    { x: 6.5, z: -5, heading: Math.PI },
+  ]);
+  setMission(G, 1);
+  G.setObjective('Heat — lose the cops, get back to 0 stars');
+  G.player.money = 1250; // a mid-chase bankroll, so the HUD money reads live
+  showBanner(G, 'HEAT — 3 STARS', 'Three interceptors on your tail. Lose them, Rook.');
+}
+
+/**
+ * 2-onfoot: Rook on foot downtown on street x=0, traffic ahead in both
+ * lanes, pedestrians on both pavements, a parked red car at the kerb to
+ * steal, mission 1 briefing + objective.
+ */
+function stageOnFoot(G) {
+  putPlayerOnFoot(G, 0, 40, 0);
+  setWanted(G, 0);
+  placeParked(G, 0, 6.8, 28, 0); // the red car, at the kerb to steal
+  placeTraffic(G, [
+    { x: -2.5, z: 20, heading: 0 },
+    { x: 2.5, z: 12, heading: Math.PI },
+    { x: -2.5, z: 2, heading: 0 },
+    { x: 2.5, z: -8, heading: Math.PI },
+  ]);
+  sidewalkPeds(G, [
+    { x: -6.5, z: 25, heading: 0 },
+    { x: 6.5, z: 18, heading: Math.PI },
+    { x: -6.5, z: 8, heading: 0 },
+    { x: 6.5, z: 30, heading: Math.PI },
+  ]);
+  setMission(G, 0);
+}
+
+/**
+ * 3-drive: Rook driving with traffic in both lanes around him (4 cars),
+ * pedestrians about, a parked car at the kerb mid-block.
+ */
+function stageDrive(G) {
+  putPlayerInCar(G, 0, 50, 0, 18);
+  setWanted(G, 0);
+  placeTraffic(G, [
+    { x: -2.5, z: 30, heading: 0 },
+    { x: 2.5, z: 36, heading: Math.PI },
+    { x: -2.5, z: 68, heading: 0 },
+    { x: 2.5, z: 74, heading: Math.PI },
+  ]);
+  sidewalkPeds(G, [
+    { x: -6.5, z: 40, heading: 0 },
+    { x: 6.5, z: 45, heading: Math.PI },
+    { x: -6.5, z: 60, heading: 0 },
+    { x: 6.5, z: 28, heading: Math.PI },
+  ]);
+  placeParked(G, 1, 6.8, 40, 0); // parked car at the kerb, mid-block
+  setMission(G, 2);
+}
+
+/**
+ * 4-mission: Rook 31 units from the warehouse so the beacon clears the
+ * roofline, traffic ahead, pedestrians on the pavements short of the
+ * warehouse block.
+ */
+function stageMission(G) {
+  putPlayerOnFoot(G, 140, 171, 0); // 31 units south of the warehouse (140, 140)
+  setWanted(G, 0);
+  placeTraffic(G, [
+    { x: 137.5, z: 156, heading: 0 },
+    { x: 142.5, z: 162, heading: Math.PI },
+  ]);
+  sidewalkPeds(G, [
+    { x: 133.5, z: 158, heading: 0 },
+    { x: 146.5, z: 162, heading: Math.PI },
+    { x: 133.5, z: 166, heading: 0 },
+  ]);
+  setMission(G, 3);
+}
+
+export { CONFIG };

@@ -1,70 +1,113 @@
-// Porto Alba — every tuning number and colour in one place.
-// The city is a 480 by 480 metre grid; nothing below depends on the screen size.
+// Porto Alba — config.js
+// Every tunable constant for the game lives here: map size, colours, speeds,
+// mission text and the deterministic shot seed. One clear job: constants only.
 
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
-export const STEP = 1 / 60;
+export const CONFIG = {
+  // World
+  MAP_SIZE: 400,
+  HALF: 200,
+  BLOCK: 40, // road centre spacing
+  ROAD_WIDTH: 10,
+  SIDEWALK: 3,
+  SHOT_SEED: 91,
+  SAVE_KEY: 'porto-alba-save-v2',
 
-/** The seed the game and its screenshots share unless ?seed= says otherwise. */
-export const SEED_DEFAULT = 91;
+  // Palette — sun-soaked coastal city, warm stucco, terracotta, sea blue.
+  COLORS: {
+    sky: 0x8ec9e8,
+    fog: 0xbfd9e8,
+    ground: 0x9aa578,
+    asphalt: 0x3a3f45,
+    sidewalk: 0xb8b0a0,
+    dash: 0xf2eeda,
+    water: 0x2e7fa8,
+    promenade: 0xd9c9a8,
+    sand: 0xe3d3a4,
+    building: [0xe8dcc4, 0xd9a06b, 0xc97b5a, 0x8fa8bf, 0xe6c9a0, 0xb5c4a8, 0xd4b48c, 0x9db3c4],
+    warehouse: 0x7a6a58,
+    playerCar: 0x1f8a8a, // teal — Rook's own car, never a steal target
+    parkedRed: 0xc23b2e,
+    police: 0x1c2733,
+    beacon: 0xffc93c,
+  },
 
-/** World extents: roads run from -240 to +240 on both axes. */
-export const WORLD = { half: 240, roadEvery: 60, roadWidth: 11, sidewalk: 4 };
+  // Speeds (units per second)
+  SPEEDS: {
+    walk: 6,
+    run: 10,
+    carMax: 38,
+    carAccel: 16,
+    carBrake: 30,
+    carReverseMax: 10,
+    trafficCruise: 9,
+    policeMax: 44,
+    pedWalk: 1.6,
+    turnRate: 2.1,
+  },
 
-/** Dashes sit every 12 m along a road, first one 6 m in from the edge. */
-export const DASH = { every: 12, offset: 6 };
+  // Wanted
+  WANTED_MAX: 5,
+  HEAT_DECAY_PER_SEC: 0.06, // stars fall back toward 0 while unseen and calm
+  HEAT_PER_CRIME: 1,
 
-export const PLAYER = {
-  walkSpeed: 7,
-  runSpeed: 11,
-  carAccel: 26,
-  carBrake: 42,
-  carReverse: 12,
-  carTopSpeed: 38, // about 137 km/h
-  carTurn: 2.4,
-  stealRange: 4.5,
-  shoveRange: 2.2,
+  // Combat
+  PLAYER_HEALTH: 100,
+  PISTOL_DAMAGE: 34,
+  PISTOL_RANGE: 55,
+  RIVAL_HEALTH: 70,
+
+  // Camera
+  CAM_FOV: 62,
+  CAM_SHOT_CAR_DIST: 9,
+  CAM_SHOT_CAR_HEIGHT: 4.0,
+  CAM_SHOT_FOOT_DIST: 7,
+  CAM_SHOT_FOOT_HEIGHT: 3.0,
+  CAM_PLAY_CAR_DIST: 13,
+  CAM_PLAY_CAR_HEIGHT: 5.5,
+  CAM_PLAY_FOOT_DIST: 10,
+  CAM_PLAY_FOOT_HEIGHT: 4.5,
+
+  // Mission destinations
+  WAREHOUSE: { x: 140, z: 140 },
+  MEET_SPOT: { x: -60, z: 60 },
+  BANK: { x: -160, z: -100 },
+  DROP_OFF: { x: 60, z: -140 },
+
+  // Missions: title, briefing shown on the banner, objective shown on the HUD.
+  MISSIONS: [
+    {
+      id: 1,
+      title: 'First Wheels',
+      briefing: 'Rook needs wheels. Steal a parked car — walk up to one and press E.',
+      objective: 'Steal a parked car (press E near one)',
+    },
+    {
+      id: 2,
+      title: 'Lose the Heat',
+      briefing: 'The Alba police are on you. Break line of sight and cool off.',
+      objective: 'Lose the heat — get back to 0 stars',
+    },
+    {
+      id: 3,
+      title: 'The Delivery',
+      briefing: 'A package for the marina crew. Drive it to the drop-off, fast and clean.',
+      objective: 'Drive the package to the drop-off by the marina',
+    },
+    {
+      id: 4,
+      title: 'The Warehouse Job',
+      briefing: 'One last job: the warehouse vault. Rivals are waiting inside — be ready.',
+      objective: 'Reach the warehouse and clear out the rivals',
+    },
+  ],
+
+  STORY_INTRO:
+    'Porto Alba, 2026. Rook came home with nothing but a name and a debt. ' +
+    'The city runs on sun, salt and stolen cars — time to take it back, one job at a time.',
+
+  // Traffic / pedestrians
+  TRAFFIC_COUNT: 14,
+  PARKED_COUNT: 10,
+  PED_COUNT: 22,
+  POLICE_PER_STAR: 1,
 };
-
-export const TRAFFIC = { count: 10, cruise: 11, gap: 9 };
-export const PEDS = { count: 14, walk: 1.6, flee: 4.5 };
-export const POLICE = { max: 3, cruise: 20, chase: 30, ramHeat: 8 };
-
-/** Heat 0..100; stars are what the HUD shows and what the police answer to. */
-export const WANTED = {
-  steal: 25,
-  ram: 8,
-  shove: 4,
-  coolPerSecond: 2.2,
-  starAt: [1, 25, 50, 75],
-};
-
-export const MISSION_REWARD = 500;
-
-/** Jobs in one shift; finishing this many shows the shift-complete screen. */
-export const SHIFT_JOBS = 4;
-
-/** Follow-camera distances: behind the player, and how high. */
-export const CAMERA = { carDist: 12, carHeight: 6, footDist: 7, footHeight: 4, lookAhead: 10 };
-
-export const PALETTE = {
-  sky: 0x8ec8e8,
-  sun: 0xfff1cf,
-  ground: 0xd9c9a4,
-  road: 0x3b3b42,
-  dash: 0xe8e4d2,
-  sidewalk: 0xb9b3a4,
-  building: [0xe8dcc0, 0xd9a06b, 0xc97b5a, 0x9fc3d4, 0xe6cfae, 0xb98a68],
-  playerCar: 0x2e6fd8,
-  targetCar: 0x18b5a6,
-  trafficCar: [0xd84b4b, 0xe8c33c, 0x7a7f8c, 0x4b9e5f, 0xe8e8e8, 0x5a4b8c],
-  policeCar: 0x1c1e24,
-  ped: [0xc96a4a, 0x4a7ac9, 0x7ac94a, 0xc9a24a, 0x8c4ac9],
-  hudPanel: 'rgba(12, 16, 24, 0.72)',
-  hudText: '#f2f0e8',
-  hudAccent: '#ffd34d',
-};
-
-/** Where the save lives between visits (this browser only). */
-export const SAVE_KEY = 'porto-alba.save.v1';
-
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';

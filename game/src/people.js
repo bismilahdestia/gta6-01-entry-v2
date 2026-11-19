@@ -1,105 +1,136 @@
-// Pedestrians: simple two-part figures that stroll the sidewalks and scatter
-// when a fast car gets close. They walk a loop of seeded waypoints so their
-// movement is deterministic from the same seed.
+// Porto Alba — people.js
+// Pedestrians: sidewalk walkers on both pavements, simple wander, and a
+// habit of stepping clear when a car gets close. One clear job: foot traffic.
 
 import * as THREE from 'three';
-import { WORLD, PEDS, PALETTE } from './config.js';
-import { clamp, dist2d, randPick, randRange } from './util.js';
+import { CONFIG } from './config.js';
+import { makeRng, randRange, pick, clamp, dist2D } from './util.js';
 
-/** The on-foot figure, also used for the player character. */
-export function buildPedMesh(color) {
+const SHIRT = [0xd94f3d, 0x3d7ad9, 0xe8b13c, 0x3f8f4f, 0x7a4a9e, 0xe8e0cc, 0x2e2a26, 0xd9a06b];
+const PANTS = [0x2e3a4a, 0x4a4a4a, 0x6b5a48, 0x1c2733];
+
+/** Build one low-poly walker: torso, head, legs, arms. */
+export function buildPedMesh(rng) {
   const group = new THREE.Group();
-  const shirt = new THREE.MeshLambertMaterial({ color });
-  const skin = new THREE.MeshLambertMaterial({ color: 0xd9a986 });
-  const legs = new THREE.MeshLambertMaterial({ color: 0x3a3f4a });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.8, 0.35), shirt);
-  body.position.y = 1.05;
-  group.add(body);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), skin);
-  head.position.y = 1.68;
+  const shirt = pick(rng, SHIRT);
+  const pants = pick(rng, PANTS);
+  const torso = new THREE.Mesh(
+    new THREE.BoxGeometry(0.7, 0.8, 0.4),
+    new THREE.MeshLambertMaterial({ color: shirt }),
+  );
+  torso.position.y = 1.15;
+  group.add(torso);
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.26, 10, 8),
+    new THREE.MeshLambertMaterial({ color: pick(rng, [0xe8b88a, 0xc98d64, 0x8a5a3b, 0xf0c8a0]) }),
+  );
+  head.position.y = 1.8;
   group.add(head);
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.65, 0.22), legs);
-  legL.position.set(-0.14, 0.33, 0);
-  group.add(legL);
-  const legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.65, 0.22), legs);
-  legR.position.set(0.14, 0.33, 0);
-  group.add(legR);
+  for (const sx of [-0.18, 0.18]) {
+    const leg = new THREE.Mesh(
+      new THREE.BoxGeometry(0.26, 0.75, 0.3),
+      new THREE.MeshLambertMaterial({ color: pants }),
+    );
+    leg.position.set(sx, 0.38, 0);
+    group.add(leg);
+    const arm = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.7, 0.22),
+      new THREE.MeshLambertMaterial({ color: shirt }),
+    );
+    arm.position.set(sx * 2.4, 1.15, 0);
+    group.add(arm);
+  }
   return group;
 }
 
-export function createPeople(scene, rng, axes) {
-  const peds = [];
-  for (let i = 0; i < PEDS.count; i += 1) {
-    const mesh = buildPedMesh(randPick(rng, PALETTE.ped));
-    scene.add(mesh);
-    // Waypoints: a loop around two neighbouring blocks, on the sidewalk.
-    const axis = randPick(rng, axes);
-    const other = randPick(rng, axes);
-    const off = WORLD.roadWidth / 2 + WORLD.sidewalk / 2;
-    const points = [
-      { x: axis + off, z: -WORLD.half + 20 },
-      { x: axis + off, z: other },
-      { x: other + off, z: other },
-      { x: other + off, z: -WORLD.half + 20 },
-    ];
-    const start = points[Math.floor(rng() * points.length)];
-    const ped = {
+/** Spawn pedestrians on the sidewalks flanking the roads. */
+export function spawnPeds(G) {
+  const rng = makeRng(CONFIG.SHOT_SEED + 33);
+  const axes = G.city.axes;
+  G.peds = [];
+  for (let i = 0; i < CONFIG.PED_COUNT; i++) {
+    const axis = pick(rng, axes);
+    const along = randRange(rng, -180, 180);
+    const useX = rng() < 0.5;
+    const side = rng() < 0.5 ? 1 : -1;
+    const dir = rng() < 0.5 ? 1 : -1;
+    const mesh = buildPedMesh(rng);
+    const off = CONFIG.ROAD_WIDTH / 2 + CONFIG.SIDEWALK / 2; // pavement centre
+    const x = useX ? along : axis + side * off;
+    const z = useX ? axis + side * off : along;
+    mesh.position.set(x, 0, z);
+    mesh.rotation.y = useX ? (dir > 0 ? -Math.PI / 2 : Math.PI / 2) : dir > 0 ? Math.PI : 0;
+    G.scene.add(mesh);
+    G.peds.push({
       mesh,
-      x: start.x,
-      z: start.z,
-      heading: randRange(rng, 0, Math.PI * 2),
-      points,
-      pointIndex: 0,
-      speed: randRange(rng, PEDS.walk * 0.8, PEDS.walk * 1.3),
-      fleeing: false,
-    };
-    mesh.position.set(ped.x, 0, ped.z);
-    peds.push(ped);
+      axis: useX ? 'x' : 'z',
+      road: axis,
+      side,
+      dir,
+      speed: randRange(rng, 1.2, 2.1),
+      heading: mesh.rotation.y,
+      wander: randRange(rng, 4, 10), // seconds until a possible turn
+      phase: randRange(rng, 0, Math.PI * 2), // walk-cycle phase
+    });
   }
-  return peds;
+  return G.peds;
 }
 
-export function updatePeople(peds, dt, cars) {
-  for (const ped of peds) {
-    // A fast car nearby sends them running the other way.
-    let threat = null;
-    let threatDist = 7;
-    for (const car of cars) {
-      if (!car.active || Math.abs(car.speed) < 6) continue;
-      const d = dist2d(ped.x, ped.z, car.x, car.z);
-      if (d < threatDist) {
-        threatDist = d;
-        threat = car;
+/** Walk every pedestrian along its pavement; dodge cars that get close. */
+export function updatePeds(G, dt) {
+  for (const ped of G.peds) {
+    ped.wander -= dt;
+    if (ped.wander <= 0) {
+      // At an intersection, sometimes turn onto the crossing road.
+      // Uses the shared seeded RNG so staging stays reproducible.
+      ped.wander = randRange(G.rng, 5, 12);
+      if (G.rng() < 0.25) {
+        ped.dir *= -1;
+        ped.heading += Math.PI;
+        ped.mesh.rotation.y = ped.heading;
       }
     }
-    let targetSpeed = ped.speed;
-    let goal;
-    if (threat) {
-      ped.fleeing = true;
-      const away = Math.atan2(ped.x - threat.x, ped.z - threat.z);
-      goal = { x: ped.x + Math.sin(away) * 10, z: ped.z + Math.cos(away) * 10 };
-      targetSpeed = PEDS.flee;
-    } else {
-      ped.fleeing = false;
-      goal = ped.points[ped.pointIndex];
-      if (dist2d(ped.x, ped.z, goal.x, goal.z) < 1.5) {
-        ped.pointIndex = (ped.pointIndex + 1) % ped.points.length;
-        goal = ped.points[ped.pointIndex];
+    const step = ped.speed * ped.dir * dt;
+    if (ped.axis === 'x') ped.mesh.position.x += step;
+    else ped.mesh.position.z += step;
+    // Wrap at the map edge.
+    if (ped.mesh.position.x > 195) ped.mesh.position.x = -195;
+    if (ped.mesh.position.x < -195) ped.mesh.position.x = 195;
+    if (ped.mesh.position.z > 195) ped.mesh.position.z = -195;
+    if (ped.mesh.position.z < -195) ped.mesh.position.z = 195;
+
+    // Keep clear of cars: if a car is close ahead, sidestep to the outer edge.
+    for (const car of [...G.cars.traffic, ...G.cars.police]) {
+      if (!car.active) continue;
+      const d = dist2D(ped.mesh.position.x, ped.mesh.position.z, car.mesh.position.x, car.mesh.position.z);
+      if (d < 4) {
+        const push = ped.axis === 'x' ? 'z' : 'x';
+        ped.mesh.position[push] += ped.side * 2.2 * dt * 3;
+        // Clamp back onto the pavement band, never into the road centre.
+        const off = CONFIG.ROAD_WIDTH / 2 + CONFIG.SIDEWALK / 2;
+        const roadPos = ped.axis === 'x' ? ped.mesh.position.z : ped.mesh.position.x;
+        const clamped = clamp(roadPos, ped.road - off - 1.2, ped.road + off + 1.2);
+        if (ped.axis === 'x') ped.mesh.position.z = clamped;
+        else ped.mesh.position.x = clamped;
+        break;
       }
     }
-    const want = Math.atan2(goal.x - ped.x, goal.z - ped.z);
-    let turn = want - ped.heading;
-    while (turn > Math.PI) turn -= Math.PI * 2;
-    while (turn < -Math.PI) turn += Math.PI * 2;
-    ped.heading += clamp(turn, -3 * dt, 3 * dt);
-    ped.x += Math.sin(ped.heading) * targetSpeed * dt;
-    ped.z += Math.cos(ped.heading) * targetSpeed * dt;
-    ped.x = clamp(ped.x, -WORLD.half - 10, WORLD.half + 10);
-    ped.z = clamp(ped.z, -WORLD.half - 10, WORLD.half + 10);
-    ped.mesh.position.set(ped.x, 0, ped.z);
-    ped.mesh.rotation.y = ped.heading;
-    // A little walk bob so they read as walking, not sliding: it keys off
-    // distance travelled, which only grows while the world is stepping.
-    ped.mesh.position.y = Math.abs(Math.sin((ped.x + ped.z) * 0.9)) * 0.04;
+
+    // Simple walk bob so they read as walking, not sliding.
+    ped.phase += dt * 7;
+    ped.mesh.position.y = Math.abs(Math.sin(ped.phase)) * 0.06;
+    ped.mesh.rotation.z = Math.sin(ped.phase) * 0.03;
   }
+}
+
+/** Place a pedestrian at an exact spot (used by shot staging). */
+export function placePed(G, x, z, heading = 0) {
+  const rng = makeRng(CONFIG.SHOT_SEED + 99);
+  const mesh = buildPedMesh(rng);
+  mesh.position.set(x, 0, z);
+  mesh.rotation.y = heading;
+  G.scene.add(mesh);
+  const ped = { mesh, axis: 'x', road: 0, side: 1, dir: 1, speed: 0, heading, wander: 99, phase: 0 };
+  G.peds.push(ped);
+  return ped;
 }
