@@ -1,62 +1,91 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Porto Alba — a sun-soaked open-city chase game. Steal the teal car at the North Docks, bring it to the Marina, and stay ahead of the Porto Alba police.">
-<title>Porto Alba — Make GTA 6</title>
+<meta name="description" content="Porto Alba — an open-world crime game in the spirit of GTA 6: explore a sun-soaked coastal city on foot and by car, steal cars, outrun the police and run four story missions.">
+<link rel="icon" href="data:,">
+<title>Porto Alba — an open-world crime game</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0c1018; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-  #game { display: block; width: 100vw; height: 100vh; }
-  #hud { position: fixed; inset: 0; pointer-events: none; color: #f2f0e8; }
-  #hud.playing #wanted, #hud.playing #objective, #hud.playing #speed, #hud.playing #cash, #hud.playing #minimap { display: block; }
-  #wanted, #objective, #speed, #cash, #minimap { display: none; }
-  #wanted { position: absolute; top: 14px; left: 16px; font-size: 26px; letter-spacing: 2px; color: #ffd34d; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
-  #wanted.hot { color: #ff5a4d; }
-  #objective { position: absolute; top: 52px; left: 16px; max-width: 420px; padding: 8px 12px; background: rgba(12,16,24,.72); border-radius: 8px; font-size: 15px; font-weight: 600; }
-  #banner { position: absolute; top: 110px; left: 50%; transform: translateX(-50%); padding: 10px 18px; background: rgba(12,16,24,.8); border: 1px solid #ffd34d; border-radius: 8px; font-size: 17px; font-weight: 700; color: #ffd34d; }
-  #speed { position: absolute; bottom: 16px; right: 16px; padding: 8px 12px; background: rgba(12,16,24,.72); border-radius: 8px; font-size: 18px; font-weight: 700; }
-  #cash { position: absolute; bottom: 16px; left: 16px; padding: 8px 12px; background: rgba(12,16,24,.72); border-radius: 8px; font-size: 18px; font-weight: 700; color: #7ee2a8; }
-  #minimap { position: absolute; top: 14px; right: 16px; width: 180px; height: 180px; border: 2px solid rgba(242,240,232,.85); border-radius: 8px; background: #0c1018; }
-  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(8, 12, 20, .62); text-align: center; pointer-events: auto; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0e141b; font-family: 'Segoe UI', system-ui, sans-serif; color: #fff; }
+  #game-container, #game-container canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* HUD */
+  #hud { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+  #hud-top-left { position: absolute; top: 14px; left: 14px; display: flex; flex-direction: column; gap: 8px; }
+  #hud-health { width: 220px; height: 18px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.35); border-radius: 4px; overflow: hidden; }
+  #hud-health-fill { height: 100%; width: 100%; background: #3fbf5a; }
+  #hud-health-text { font-size: 12px; font-weight: 700; text-shadow: 0 1px 2px #000; }
+  #hud-stars { font-size: 26px; letter-spacing: 3px; color: #fff; text-shadow: 0 2px 4px #000; }
+  #hud-money { font-size: 20px; font-weight: 800; color: #7dff9a; text-shadow: 0 2px 4px #000; }
+  #hud-ammo { font-size: 13px; font-weight: 700; text-shadow: 0 1px 2px #000; }
+  #hud-speed { position: absolute; right: 16px; bottom: 14px; font-size: 30px; font-weight: 800; text-shadow: 0 2px 6px #000; }
+  #hud-objective { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); border: 1px solid rgba(255,201,60,.8); color: #ffd97a; padding: 8px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; white-space: nowrap; max-width: 90vw; overflow: hidden; text-overflow: ellipsis; }
+  #hud-objective:empty { display: none; }
+  #hud-banner { position: absolute; left: 50%; transform: translateX(-50%); top: 28%; width: min(560px, 86vw); text-align: center; background: rgba(10,14,20,.78); border: 1px solid rgba(255,255,255,.25); border-radius: 10px; padding: 16px 20px; opacity: 0; transition: opacity .4s; }
+  #hud-banner-title { font-size: 26px; font-weight: 900; letter-spacing: 1px; color: #ffc93c; }
+  #hud-banner-text { margin-top: 6px; font-size: 15px; line-height: 1.45; color: #e8ecf1; }
+  #hud-minimap { position: absolute; right: 16px; top: 14px; width: 200px; height: 200px; border: 2px solid rgba(255,255,255,.55); border-radius: 8px; background: #232d38; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+  #hud-hint { position: absolute; left: 14px; bottom: 14px; font-size: 12px; color: rgba(255,255,255,.85); text-shadow: 0 1px 2px #000; line-height: 1.6; }
+  #hud-save-note { position: absolute; left: 14px; bottom: 64px; font-size: 12px; color: #9be7ff; text-shadow: 0 1px 2px #000; }
+
+  /* Screens */
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; z-index: 10; background: linear-gradient(180deg, rgba(8,20,34,.82), rgba(8,20,34,.94)); }
   .screen[hidden] { display: none; }
-  .screen h1 { margin: 0; font-size: 52px; letter-spacing: 3px; color: #ffd34d; text-shadow: 0 3px 12px rgba(0,0,0,.8); }
-  .screen h2 { margin: 0; font-size: 34px; color: #f2f0e8; }
-  .screen p { margin: 0; max-width: 560px; font-size: 17px; line-height: 1.5; color: #d8d4c8; }
-  .screen .keys { font-size: 14px; color: #9aa3b2; }
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .screen h1 { font-size: 64px; font-weight: 900; letter-spacing: 4px; color: #ffc93c; text-shadow: 0 4px 0 #7a4a00, 0 8px 24px #000; }
+  .screen h2 { font-size: 20px; font-weight: 600; color: #9be7ff; margin-top: 4px; letter-spacing: 2px; }
+  .screen p { max-width: 560px; margin: 18px 20px 0; font-size: 16px; line-height: 1.6; color: #e8ecf1; }
+  .screen .controls { margin-top: 14px; font-size: 14px; line-height: 1.9; color: #c8d2dd; }
+  .screen button { pointer-events: auto; margin-top: 26px; padding: 14px 44px; font-size: 20px; font-weight: 800; letter-spacing: 2px; color: #10151b; background: #ffc93c; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 6px 0 #a67c00, 0 10px 24px rgba(0,0,0,.5); }
+  .screen button:hover { background: #ffd95e; }
+  .screen button:active { transform: translateY(4px); box-shadow: 0 2px 0 #a67c00; }
+  #pause-screen { background: rgba(8,14,20,.72); }
 </style>
 <script type="importmap">
-{ "imports": { "three": "./vendor/three/three.module.min.js" } }
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js"
+  }
+}
 </script>
 </head>
 <body>
-<noscript><p style="color:#f2f0e8;padding:2rem">Porto Alba needs JavaScript to run.</p></noscript>
-<canvas id="game" tabindex="0"></canvas>
+<div id="game-container"></div>
+
 <div id="hud">
-  <div id="wanted" aria-label="Wanted level">☆☆☆☆</div>
-  <div id="objective">JOB — Steal the teal car at the North Docks</div>
-  <div id="banner" hidden></div>
-  <canvas id="minimap" width="180" height="180" aria-label="Minimap"></canvas>
-  <div id="speed">0 km/h</div>
-  <div id="cash">$0</div>
-  <div class="screen" id="screen-title">
-    <h1>PORTO ALBA</h1>
-    <p>A sun-soaked open city. Steal the teal car at the North Docks, bring it to the Marina, and stay ahead of the police. Every job pays $500 — finish a shift of four jobs to win the day.</p>
-    <p class="keys">WASD / arrows — drive &amp; walk &nbsp;·&nbsp; E / F — steal a car &nbsp;·&nbsp; Space — shove &nbsp;·&nbsp; P — pause &nbsp;·&nbsp; M — mute &nbsp;·&nbsp; Shift — run</p>
-    <p>Press Enter or click to start.</p>
+  <div id="hud-top-left">
+    <div id="hud-health"><div id="hud-health-fill"></div></div>
+    <div id="hud-health-text">100 HP</div>
+    <div id="hud-stars">☆☆☆☆☆</div>
+    <div id="hud-money">$0</div>
+    <div id="hud-ammo">AMMO 12/12</div>
   </div>
-  <div class="screen" id="screen-paused" hidden>
-    <h2>Paused</h2>
-    <p>Press P or Enter to keep driving.</p>
+  <div id="hud-objective"></div>
+  <div id="hud-banner">
+    <div id="hud-banner-title"></div>
+    <div id="hud-banner-text"></div>
   </div>
-  <div class="screen" id="screen-over" hidden>
-    <h2>Shift complete</h2>
-    <p id="shift-stats"></p>
-    <p>Press Enter to start a new shift.</p>
-  </div>
-  <p id="status" aria-live="polite"></p>
+  <canvas id="hud-minimap" width="200" height="200"></canvas>
+  <div id="hud-speed">ON FOOT</div>
+  <div id="hud-save-note"></div>
+  <div id="hud-hint">WASD / Arrows — drive &amp; walk &nbsp;·&nbsp; E — steal car / get out &nbsp;·&nbsp; Click — shoot &nbsp;·&nbsp; R — reload &nbsp;·&nbsp; Space — handbrake &nbsp;·&nbsp; P — pause</div>
 </div>
+
+<div id="start-screen" class="screen">
+  <h1>PORTO ALBA</h1>
+  <h2>AN OPEN-WORLD CRIME GAME</h2>
+  <p>Rook came home with nothing but a name and a debt. Porto Alba runs on sun, salt and stolen cars — take it back, one job at a time. Steal cars, outrun the police, run the deliveries and pull the warehouse job.</p>
+  <div class="controls">WASD / Arrows — drive &amp; walk &nbsp;·&nbsp; E — steal a car &nbsp;·&nbsp; Mouse — look, click to shoot<br>R — reload &nbsp;·&nbsp; Space — handbrake &nbsp;·&nbsp; P — pause &nbsp;·&nbsp; Progress saves automatically</div>
+  <button id="play-button">PLAY</button>
+</div>
+
+<div id="pause-screen" class="screen" style="display: none;">
+  <h1>PAUSED</h1>
+  <p>Porto Alba waits for no one — except right now. Press P or Resume to get back out there.</p>
+  <button id="resume-button">RESUME</button>
+</div>
+
 <script type="module" src="./src/boot.js"></script>
 </body>
 </html>
