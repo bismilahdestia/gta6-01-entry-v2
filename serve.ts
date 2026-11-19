@@ -1,59 +1,75 @@
-// Porto Alba — a tiny static server for local play and screenshots:
-//
-//   node serve.ts            # http://localhost:8080
-//   node serve.ts --port 9000
-//
-// It serves game/ only, with a small MIME map and a guard against paths
-// that escape the game directory. The game itself needs no build step.
-
+// Porto Alba — serve.ts (Node 22, standard library only)
+// A tiny static server for game/, so the entry can be played locally without
+// a build step: `node serve.ts` serves game/ on http://127.0.0.1:8123.
+// It sends the MIME types a browser game needs, refuses any path outside
+// game/, and otherwise does nothing clever: a development convenience, not
+// a web server for the internet.
+import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { extname, join, resolve } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-function parsePort() {
-  const flag = process.argv.indexOf('--port');
-  if (flag === -1) return 8080;
-  const value = Number(process.argv[flag + 1]);
-  if (!Number.isInteger(value) || value < 1 || value > 65535) {
-    throw new Error(`--port needs a number from 1 to 65535, got ${process.argv[flag + 1] ?? '(nothing)'}.`);
-  }
-  return value;
-}
+const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
+const args = process.argv.slice(2);
+const portIndex = args.indexOf('--port');
+const requested = portIndex === -1 ? 8123 : Number(args[portIndex + 1]);
+const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8123;
 
-const PORT = parsePort();
-const GAME_DIR = resolve(import.meta.dirname, 'game');
-
-const MIME = {
+const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.bin': 'application/octet-stream',
+  '.wasm': 'application/wasm',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.txt': 'text/plain; charset=utf-8',
 };
 
-const server = createServer((req, res) => {
-  const url = new URL(req.url ?? '/', 'http://localhost');
-  const decoded = decodeURIComponent(url.pathname);
-  const rel = decoded === '/' ? 'index.html' : decoded.replace(/^\/+/, '');
-  const file = resolve(GAME_DIR, rel);
-  if (!file.startsWith(GAME_DIR + '/') && file !== GAME_DIR) {
-    res.writeHead(403, { 'content-type': 'text/plain' });
-    res.end('forbidden');
+createServer((request, response) => {
+  const url = new URL(request.url ?? '/', 'http://localhost');
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    response.writeHead(400).end('bad request');
     return;
   }
-  if (!existsSync(file) || !statSync(file).isFile()) {
-    res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('not found');
+  if (pathname.endsWith('/')) pathname += 'index.html';
+  const file = resolve(join(root, normalize(pathname)));
+  if (file !== root && !file.startsWith(root + sep)) {
+    response.writeHead(403).end('forbidden');
     return;
   }
-  res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
-  createReadStream(file).pipe(res);
-});
-
-server.listen(PORT, () => {
-  console.log(`Porto Alba at http://localhost:${PORT}/`);
+  let size: number;
+  try {
+    const stats = statSync(file);
+    if (!stats.isFile()) throw new Error('not a file');
+    size = stats.size;
+  } catch {
+    response.writeHead(404).end('not found');
+    return;
+  }
+  response.writeHead(200, {
+    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': size,
+    'cache-control': 'no-store',
+  });
+  createReadStream(file).pipe(response);
+}).listen(port, '127.0.0.1', () => {
+  console.log(`game/ is on http://127.0.0.1:${port}`);
+  console.log(`play it at http://127.0.0.1:${port}/index.html`);
 });

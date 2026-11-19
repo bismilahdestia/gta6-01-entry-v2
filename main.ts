@@ -1,74 +1,37 @@
-// Porto Alba — the submission handoff: copy game/ and screenshots/ into
-// /output and write the dossier the scorer reads. Run from the repo root
-// with Node 22 or newer:
+// Porto Alba — main.ts (Node 22, standard library only)
+// The program that hands the game in: it copies game/ and screenshots/ from
+// beside this file to /output and writes /output/dossier.json, the summary
+// the judge reads, with the vendored make.fun library. The game itself is
+// plain static files a desktop browser loads offline: game/index.html and
+// its ES modules, three.js vendored under game/vendor/, no network request.
 //
-//   node main.ts
-//
-// The dossier is built from the same caps the bounty gate uses, so what this
-// script writes is exactly what the scorer will see. It is deterministic:
-// run it twice and the dossier bytes are identical.
+// Serve it locally with `node serve.ts`, then open http://127.0.0.1:8123.
+// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const REPO = resolve(import.meta.dirname);
-const OUT = '/output';
+const here = fileURLToPath(new URL('.', import.meta.url));
+const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-const CAPS = {
+mkdirSync(out, { recursive: true });
+cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+
+// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
+// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of game
+// files, in all, or a path under game/ over 1000 bytes: game/ counts beside /output's own 1000-entry cap, its
+// screenshots/ and dossier.json).
+const dossier = buildDossier(out, {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
   game_max_files: 993,
-  game_max_bytes: 48 * 1024 * 1024,
+  game_max_bytes: 50331648,
   game_path_max_bytes: 1000,
-};
-
-function copyTree(from, to) {
-  mkdirSync(to, { recursive: true });
-  for (const name of readdirSync(from)) {
-    const src = join(from, name);
-    const dst = join(to, name);
-    if (statSync(src).isDirectory()) copyTree(src, dst);
-    else copyFileSync(src, dst);
-  }
-}
-
-function main() {
-  const gameDir = join(REPO, 'game');
-  const shotsDir = join(REPO, 'screenshots');
-  if (!existsSync(join(gameDir, 'index.html'))) {
-    throw new Error('game/index.html is missing — nothing to hand in.');
-  }
-  const shots = existsSync(shotsDir) ? readdirSync(shotsDir).filter((f) => /\.(png|jpe?g)$/i.test(f)) : [];
-  if (shots.length === 0) {
-    throw new Error('screenshots/ holds no image — the entry needs at least one.');
-  }
-  // Fail fast on an oversized screenshot instead of letting the dossier build throw.
-  for (const shot of shots) {
-    const size = statSync(join(shotsDir, shot)).size;
-    if (size > CAPS.screenshots.max_bytes) {
-      throw new Error(`screenshots/${shot} is ${size} bytes — over the ${CAPS.screenshots.max_bytes} cap.`);
-    }
-  }
-
-  rmSync(OUT, { recursive: true, force: true });
-  mkdirSync(OUT, { recursive: true });
-  copyTree(gameDir, join(OUT, 'game'));
-  copyTree(shotsDir, join(OUT, 'screenshots'));
-
-  const dossier = buildDossier(OUT, CAPS);
-  writeFileSync(join(OUT, 'dossier.json'), dossier);
-  const gameFiles = countFiles(join(OUT, 'game'));
-  console.log(`handed in: ${shots.length} screenshot(s), ${gameFiles} game file(s), dossier ${dossier.length} bytes -> ${OUT}`);
-}
-
-function countFiles(dir) {
-  let n = 0;
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name);
-    n += statSync(p).isDirectory() ? countFiles(p) : 1;
-  }
-  return n;
-}
-
-main();
+});
+writeFileSync(join(out, 'dossier.json'), dossier);
+console.log(`wrote ${join(out, 'dossier.json')} (${Buffer.byteLength(dossier)} bytes)`);
