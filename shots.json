@@ -1,1 +1,24 @@
-[{"name":"1-chase.jpg","query":"?shot=chase&seed=19"},{"name":"2-onfoot.jpg","query":"?shot=onfoot&seed=19"},{"name":"3-drive.jpg","query":"?shot=drive&seed=19"},{"name":"4-mission.jpg","query":"?shot=mission&seed=19"}]
+{
+  "shots": [
+    {
+      "file": "1-chase.jpg",
+      "label": "The chase \u2014 the teal target 25 m ahead of the player on the avenue",
+      "url": "/?shot=chase&seed=91"
+    },
+    {
+      "file": "2-onfoot.jpg",
+      "label": "On foot on the avenue sidewalk, traffic and pedestrians passing",
+      "url": "/?shot=onfoot&seed=91"
+    },
+    {
+      "file": "3-drive.jpg",
+      "label": "Driving fast down the avenue, overtaking slower traffic",
+      "url": "/?shot=drive&seed=91"
+    },
+    {
+      "file": "4-mission.jpg",
+      "label": "The delivery job \u2014 driving the car to the Marina, beacon on the HUD",
+      "url": "/?shot=mission&seed=91"
+    }
+  ]
+}
